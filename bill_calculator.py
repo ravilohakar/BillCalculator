@@ -578,6 +578,20 @@ class BillCalculatorApp:
             ws.title = "Bills"
             ws.append(["Bill No", "Item Name", "Size", "Unit Price", "Discount", "Qty Box", "Qty Bottle", "Total", "Amount Received", "Balance", "Bill To", "Bill Date"])
 
+        # Check if bill number already exists and delete existing entries (in reverse order to preserve row indices)
+        rows_to_delete = []
+        for row_idx, row in enumerate(ws.iter_rows(min_row=2, values_only=False), start=2):
+            if row[0].value is not None:
+                try:
+                    if int(row[0].value) == bill_no:
+                        rows_to_delete.append(row_idx)
+                except (ValueError, TypeError):
+                    pass
+        
+        # Delete rows in reverse order to avoid index shifting issues
+        for row_idx in sorted(rows_to_delete, reverse=True):
+            ws.delete_rows(row_idx)
+
         try:
             received = float(self.received_var.get())
         except ValueError:
