@@ -392,6 +392,19 @@ class BillCalculatorApp:
         if not added:
             messagebox.showwarning("No Quantity", "Please enter a box quantity or loose count for at least one item.")
             return
+        
+        # Generate Bill No if not already set
+        if self.bill_no_var.get() == "Bill No: --":
+            bills_file = self._get_bills_file()
+            if os.path.exists(bills_file):
+                wb = openpyxl.load_workbook(bills_file)
+                ws = wb.active
+                bill_no = self._get_next_bill_no(ws)
+                wb.close()
+            else:
+                bill_no = 1
+            self.bill_no_var.set(f"Bill No: {bill_no}")
+        
         self._refresh_bill()
 
     def remove_item(self):
@@ -447,6 +460,9 @@ class BillCalculatorApp:
             messagebox.showwarning("Empty Bill", "There are no items in the bill to print.")
             return
 
+        # Save bill first
+        self.save_bill()
+
         grand_total = sum(bi["total"] for bi in self.bill_items)
         try:
             received = float(self.received_var.get())
@@ -459,8 +475,13 @@ class BillCalculatorApp:
         lines.append("                   BILL RECEIPT")
         lines.append("=" * 50)
         lines.append(f"Date: {datetime.now().strftime('%d-%m-%Y %H:%M:%S')}")
+        bill_no_text = self.bill_no_var.get()
+        lines.append(bill_no_text)
+        bill_to_text = self.bill_to_var.get().strip()
+        if bill_to_text:
+            lines.append(f"Bill To: {bill_to_text}")
         lines.append("-" * 58)
-        lines.append(f"{'#':<4}{'Item':<18}{'Qty':<5}{'Loose':<6}{'Price':<10}{'Disc':<8}{'Total':<10}")
+        lines.append(f"{'#':<4}{'Item':<18}{'Qty Box':<5}{'Bottles':<6}{'Price':<10}{'Disc':<8}{'Total':<10}")
         lines.append("-" * 58)
         for i, bi in enumerate(self.bill_items, 1):
             lines.append(
@@ -520,22 +541,42 @@ class BillCalculatorApp:
                     pass
         return max_no + 1
 
-    def save_bill(self):
+    def save_bill(self, show_message=True):
         if not self.bill_items:
             messagebox.showwarning("Empty Bill", "There are no items in the bill to save.")
             return
 
         bills_file = self._get_bills_file()
+        
+        # Extract bill number if already set, otherwise generate a new one
+        bill_no_text = self.bill_no_var.get()
+        if bill_no_text != "Bill No: --":
+            # Extract the bill number from "Bill No: X"
+            try:
+                bill_no = int(bill_no_text.split(":")[-1].strip())
+            except (ValueError, IndexError):
+                bill_no = None
+        else:
+            bill_no = None
+        
+        # Generate bill number only if not already set
+        if bill_no is None:
+            if os.path.exists(bills_file):
+                wb = openpyxl.load_workbook(bills_file)
+                ws = wb.active
+                bill_no = self._get_next_bill_no(ws)
+                wb.close()
+            else:
+                bill_no = 1
+        
         if os.path.exists(bills_file):
             wb = openpyxl.load_workbook(bills_file)
             ws = wb.active
-            bill_no = self._get_next_bill_no(ws)
         else:
             wb = openpyxl.Workbook()
             ws = wb.active
             ws.title = "Bills"
             ws.append(["Bill No", "Item Name", "Size", "Unit Price", "Discount", "Qty Box", "Qty Bottle", "Total", "Amount Received", "Balance", "Bill To", "Bill Date"])
-            bill_no = 1
 
         try:
             received = float(self.received_var.get())
@@ -566,7 +607,8 @@ class BillCalculatorApp:
         wb.save(bills_file)
         wb.close()
         self.bill_no_var.set(f"Bill No: {bill_no}")
-        messagebox.showinfo("Bill Saved", f"Bill saved successfully!\nBill No: {bill_no}")
+        if show_message:
+            messagebox.showinfo("Bill Saved", f"Bill saved successfully!\nBill No: {bill_no}")
 
     def fetch_bill(self):
         bills_file = self._get_bills_file()
