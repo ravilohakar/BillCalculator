@@ -12,6 +12,112 @@ import tempfile
 from datetime import datetime
 
 
+class PrintPreviewWindow:
+    """Print preview window that displays the bill before printing."""
+    
+    def __init__(self, parent, bill_text):
+        self.preview_window = tk.Toplevel(parent)
+        self.preview_window.title("Print Preview - Bill Receipt")
+        self.preview_window.geometry("700x650+150+50")
+        self.preview_window.resizable(True, True)
+        self.preview_window.configure(bg="#f5f5f5")
+        
+        self.bill_text = bill_text
+        
+        # ── Header Frame ──
+        header_frame = ttk.Frame(self.preview_window)
+        header_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        title_label = ttk.Label(header_frame, text="Print Preview", font=("Segoe UI", 14, "bold"))
+        title_label.pack(side=tk.LEFT)
+        
+        # ── Preview Area with Canvas and Scrollbar ──
+        canvas_frame = ttk.Frame(self.preview_window)
+        canvas_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        
+        # Create canvas with scrollbar for the bill preview
+        self.canvas = tk.Canvas(canvas_frame, bg="white", highlightthickness=1, highlightbackground="#bdc3c7")
+        v_scrollbar = ttk.Scrollbar(canvas_frame, orient=tk.VERTICAL, command=self.canvas.yview)
+        h_scrollbar = ttk.Scrollbar(self.preview_window, orient=tk.HORIZONTAL, command=self.canvas.xview)
+        self.canvas.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        
+        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        h_scrollbar.pack(fill=tk.X)
+        
+        # Create text widget inside canvas for better rendering
+        self.text_widget = tk.Text(
+            self.canvas,
+            font=("Courier New", 10),
+            bg="white",
+            fg="#2c3e50",
+            wrap=tk.NONE,
+            padx=20,
+            pady=20,
+            relief=tk.FLAT,
+            highlightthickness=0,
+            height=35,
+            width=100
+        )
+        self.text_window = self.canvas.create_window((0, 0), window=self.text_widget, anchor="nw")
+        
+        # Insert the bill text
+        self.text_widget.insert(1.0, self.bill_text)
+        self.text_widget.configure(state=tk.DISABLED)  # Make read-only
+        self.text_widget.see(1.0)  # Scroll to top
+        
+        # Update canvas scroll region
+        self.text_widget.bind("<Configure>", self._on_text_configure)
+        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        
+        # ── Button Frame ──
+        button_frame = ttk.Frame(self.preview_window)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        print_btn = ttk.Button(
+            button_frame,
+            text="  Print  ",
+            command=self._print_bill
+        )
+        print_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        close_btn = ttk.Button(
+            button_frame,
+            text="  Close  ",
+            command=self.preview_window.destroy
+        )
+        close_btn.pack(side=tk.RIGHT)
+        
+        self.preview_window.focus_set()
+    
+    def _on_text_configure(self, event):
+        """Update canvas scroll region when text changes."""
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        # Make the text widget match the canvas width
+        self.canvas.itemconfig(self.text_window, width=event.width - 40)
+    
+    def _on_mousewheel(self, event):
+        """Handle mouse wheel scrolling."""
+        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+    
+    def _print_bill(self):
+        """Send the bill to printer."""
+        try:
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".txt",
+                prefix="bill_",
+                delete=False,
+                encoding="utf-8"
+            )
+            tmp.write(self.bill_text)
+            tmp.close()
+            os.startfile(tmp.name, "print")
+            messagebox.showinfo("Print", "Bill sent to printer!")
+        except Exception as e:
+            messagebox.showerror("Print Error", f"Could not print the bill:\n{e}")
+
+
 class BillCalculatorApp:
     def __init__(self, root):
         self.root = root
@@ -455,14 +561,8 @@ class BillCalculatorApp:
         self.total_discount_var.set(f"Total Discount:  ₹ {total_discount:,.2f}")
         self._update_balance()
 
-    def print_bill(self):
-        if not self.bill_items:
-            messagebox.showwarning("Empty Bill", "There are no items in the bill to print.")
-            return
-
-        # Save bill first
-        self.save_bill()
-
+    def _generate_bill_text(self):
+        """Generate formatted bill text for preview/printing."""
         grand_total = sum(bi["total"] for bi in self.bill_items)
         try:
             received = float(self.received_var.get())
@@ -480,15 +580,15 @@ class BillCalculatorApp:
         bill_to_text = self.bill_to_var.get().strip()
         if bill_to_text:
             lines.append(f"Bill To: {bill_to_text}")
-        lines.append("-" * 58)
-        lines.append(f"{'#':<4}{'Item':<18}{'Qty Box':<5}{'Bottles':<6}{'Price':<10}{'Disc':<8}{'Total':<10}")
-        lines.append("-" * 58)
+        lines.append("=" * 85)
+        lines.append(f"{'#':<3}{'Item':<20}{'Size':<10}{'Qty Box':<8}{'Bottles':<8}{'Price':<12}{'Total':<10}")
+        lines.append("=" * 85)
         for i, bi in enumerate(self.bill_items, 1):
             lines.append(
-                f"{i:<4}{bi['name'][:17]:<18}{bi['qty']:<5}{bi.get('loose', 0):<6}"
-                f"{bi['unit_price']:<10.2f}{bi['discount']:<8.2f}{bi['total']:<10.2f}"
+                f"{i:<3}{bi['name'][:19]:<20}{bi['size']:<10}{bi['qty']:<8}{bi.get('loose', 0):<8}"
+                f"{bi['unit_price']:<12.2f}{bi['total']:<10.2f}"
             )
-        lines.append("-" * 50)
+        lines.append("=" * 85)
         lines.append(f"{'Grand Total:':<37} ₹ {grand_total:,.2f}")
         lines.append(f"{'Amount Received:':<37} ₹ {received:,.2f}")
         if balance > 0:
@@ -501,15 +601,18 @@ class BillCalculatorApp:
         lines.append("           Thank you for your purchase!")
         lines.append("")
 
-        receipt_text = "\n".join(lines)
+        return "\n".join(lines)
 
-        try:
-            tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".txt", prefix="bill_", delete=False, encoding="utf-8")
-            tmp.write(receipt_text)
-            tmp.close()
-            os.startfile(tmp.name, "print")
-        except Exception as e:
-            messagebox.showerror("Print Error", f"Could not print the bill:\n{e}")
+    def print_bill(self):
+        if not self.bill_items:
+            messagebox.showwarning("Empty Bill", "There are no items in the bill to print.")
+            return
+
+        # Save bill first
+        self.save_bill(show_message=False)
+
+        # Show print preview window
+        PrintPreviewWindow(self.root, self._generate_bill_text())
 
     def _update_balance(self, *_args):
         try:
